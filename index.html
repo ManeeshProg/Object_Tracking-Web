@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLOv8 Object Tracking</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .card-header {
+            background-color: #343a40;
+            color: white;
+            font-weight: bold;
+        }
+        .video-container {
+            position: relative;
+            background-color: #000;
+            border-radius: 5px;
+            overflow: hidden;
+            width: 100%;
+            height: 480px;
+        }
+        #videoStream {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .metrics-card {
+            height: 100%;
+        }
+        .metrics-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .metrics-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .class-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .class-item {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
+        .class-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #6c757d;
+            background-color: #f1f3f5;
+        }
+        .upload-icon {
+            font-size: 48px;
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        #uploadProgress {
+            display: none;
+            margin-top: 20px;
+        }
+        .chart-container {
+            height: 200px;
+            margin-top: 20px;
+        }
+        #processingSpinner {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+        .settings-panel {
+            padding: 15px;
+        }
+        .form-range {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">YOLOv8 Object Tracking Dashboard</h1>
+        
+        <div class="row">
+            <!-- Video Input Card -->
+            <div class="col-md-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-camera-video"></i> Video Input
+                    </div>
+                    <div class="card-body">
+                        <ul class="nav nav-tabs" id="videoInputTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-tab-pane" type="button" role="tab" aria-controls="upload-tab-pane" aria-selected="true">Upload Video</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="local-tab" data-bs-toggle="tab" data-bs-target="#local-tab-pane" type="button" role="tab" aria-controls="local-tab-pane" aria-selected="false">Local Video</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="videoInputTabsContent">
+                            <!-- Upload Video Tab -->
+                            <div class="tab-pane fade show active" id="upload-tab-pane" role="tabpanel" aria-labelledby="upload-tab" tabindex="0">
+                                <form id="uploadForm" enctype="multipart/form-data" class="mt-3">
+                                    <div class="upload-area" id="dropArea">
+                                        <div class="upload-icon">
+                                            <i class="bi bi-cloud-arrow-up"></i>
+                                        </div>
+                                        <h5>Drag & Drop or Click to Upload Video</h5>
+                                        <p class="text-muted">Supported formats: MP4, AVI, MOV</p>
+                                        <input type="file" id="videoFile" name="file" accept="video/*" class="d-none" required />
+                                        <button type="button" id="browseButton" class="btn btn-primary mt-2">Browse Files</button>
+                                    </div>
+                                    <div id="uploadProgress" class="progress mt-3">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div class="text-center mt-3">
+                                        <button type="submit" id="processButton" class="btn btn-success">
+                                            <i class="bi bi-play-fill"></i> Process Video
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            
+                            <!-- Local Video Tab -->
+                            <div class="tab-pane fade" id="local-tab-pane" role="tabpanel" aria-labelledby="local-tab" tabindex="0">
+                                <div class="mt-3">
+                                    <div class="mb-3">
+                                        <h5>Select a local video file</h5>
+                                        <p class="text-muted">Choose from available videos in the current directory</p>
+                                        <div id="localVideosLoading" class="text-center">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            <p>Loading available videos...</p>
+                                        </div>
+                                        <div id="localVideosContainer" class="list-group mt-3" style="display: none;">
+                                            <!-- Will be populated dynamically -->
+                                        </div>
+                                        <div id="noLocalVideos" class="alert alert-info mt-3" style="display: none;">
+                                            No video files found in the current directory.
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="manualPathInput" class="form-label">Or enter video path manually:</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="manualPathInput" placeholder="e.g., /path/to/video.mp4">
+                                            <button class="btn btn-outline-secondary" type="button" id="browseLocalButton">Browse...</button>
+                                        </div>
+                                    </div>
+                                    <div class="text-center mt-3">
+                                        <button type="button" id="processLocalButton" class="btn btn-success">
+                                            <i class="bi bi-play-fill"></i> Process Local Video
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- Video Display -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-camera-video"></i> Object Tracking</span>
+                        <div>
+                            <button id="saveVideoButton" class="btn btn-sm btn-outline-light me-2" disabled>
+                                <i class="bi bi-download"></i> Save Video
+                            </button>
+                            <span id="videoStatus" class="badge bg-secondary">Ready</span>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="video-container">
+                            <div id="processingSpinner" class="spinner-border text-light" role="status">
+                                <span class="visually-hidden">Processing...</span>
+                            </div>
+                            <img id="videoStream" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Video stream" />
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Class Legend -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <i class="bi bi-tags"></i> Class Legend
+                    </div>
+                    <div class="card-body">
+                        <div id="classLegend" class="class-legend">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Metrics Dashboard -->
+            <div class="col-lg-4">
+                <div class="card metrics-card">
+                    <div class="card-header">
+                        <i class="bi bi-graph-up"></i> Tracking Metrics
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <!-- FPS -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">FPS</div>
+                                    <div id="fpsValue" class="metrics-value">0</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Object Count -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">Objects</div>
+                                    <div id="objectCountValue" class="metrics-value">0</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Total Objects Tracked -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">Total Tracked</div>
+                                    <div id="totalTrackedValue" class="metrics-value">0</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Confidence -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">Avg. Confidence</div>
+                                    <div id="confidenceValue" class="metrics-value">0%</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Processing Time -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">Processing Time</div>
+                                    <div id="processingTimeValue" class="metrics-value">0 ms</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Frame Progress -->
+                            <div class="col-6 col-lg-4">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="metrics-label">Frame Progress</div>
+                                    <div id="frameProgressValue" class="metrics-value">0 / 0</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Class Counts -->
+                        <div class="mt-4">
+                            <h6>Object Classes</h6>
+                            <div id="classCountsContainer">
+                                <!-- Will be populated dynamically -->
+                            </div>
+                        </div>
+                        
+                        <!-- Time Breakdown -->
+                        <div class="mt-4">
+                            <h6>Time Breakdown</h6>
+                            <div class="progress" style="height: 20px;">
+                                <div id="detectionTimeBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%">Detection</div>
+                                <div id="trackingTimeBar" class="progress-bar bg-success" role="progressbar" style="width: 0%">Tracking</div>
+                                <div id="otherTimeBar" class="progress-bar bg-info" role="progressbar" style="width: 0%">Other</div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small id="detectionTimeText">Detection: 0ms</small>
+                                <small id="trackingTimeText">Tracking: 0ms</small>
+                                <small id="otherTimeText">Other: 0ms</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Settings Card -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <i class="bi bi-sliders"></i> Display Settings
+                    </div>
+                    <div class="card-body settings-panel">
+                        <div class="mb-3">
+                            <label for="trailLengthSlider" class="form-label">Trail Length: <span id="trailLengthValue">30</span></label>
+                            <input type="range" class="form-range" id="trailLengthSlider" min="1" max="60" value="30">
+                        </div>
+                        <div class="mb-3">
+                            <label for="confidenceThresholdSlider" class="form-label">Confidence Threshold: <span id="confidenceThresholdValue">0.25</span></label>
+                            <input type="range" class="form-range" id="confidenceThresholdSlider" min="0" max="1" step="0.05" value="0.25">
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="showLabelsSwitch" checked>
+                            <label class="form-check-label" for="showLabelsSwitch">Show Labels</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="showTrailsSwitch" checked>
+                            <label class="form-check-label" for="showTrailsSwitch">Show Trails</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // DOM Elements
+        const form = document.getElementById('uploadForm');
+        const videoFile = document.getElementById('videoFile');
+        const browseButton = document.getElementById('browseButton');
+        const dropArea = document.getElementById('dropArea');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const progressBar = document.querySelector('.progress-bar');
+        const videoStream = document.getElementById('videoStream');
+        const videoStatus = document.getElementById('videoStatus');
+        const processingSpinner = document.getElementById('processingSpinner');
+        const classLegend = document.getElementById('classLegend');
+        const classCountsContainer = document.getElementById('classCountsContainer');
+        const saveVideoButton = document.getElementById('saveVideoButton');
+        const localVideosContainer = document.getElementById('localVideosContainer');
+        const localVideosLoading = document.getElementById('localVideosLoading');
+        const noLocalVideos = document.getElementById('noLocalVideos');
+        const manualPathInput = document.getElementById('manualPathInput');
+        const browseLocalButton = document.getElementById('browseLocalButton');
+        const processLocalButton = document.getElementById('processLocalButton');
+        
+        // Metrics elements
+        const fpsValue = document.getElementById('fpsValue');
+        const objectCountValue = document.getElementById('objectCountValue');
+        const totalTrackedValue = document.getElementById('totalTrackedValue');
+        const confidenceValue = document.getElementById('confidenceValue');
+        const processingTimeValue = document.getElementById('processingTimeValue');
+        const frameProgressValue = document.getElementById('frameProgressValue');
+        const detectionTimeBar = document.getElementById('detectionTimeBar');
+        const trackingTimeBar = document.getElementById('trackingTimeBar');
+        const otherTimeBar = document.getElementById('otherTimeBar');
+        const detectionTimeText = document.getElementById('detectionTimeText');
+        const trackingTimeText = document.getElementById('trackingTimeText');
+        const otherTimeText = document.getElementById('otherTimeText');
+        
+        // Settings elements
+        const trailLengthSlider = document.getElementById('trailLengthSlider');
+        const trailLengthValue = document.getElementById('trailLengthValue');
+        const confidenceThresholdSlider = document.getElementById('confidenceThresholdSlider');
+        const confidenceThresholdValue = document.getElementById('confidenceThresholdValue');
+        const showLabelsSwitch = document.getElementById('showLabelsSwitch');
+        const showTrailsSwitch = document.getElementById('showTrailsSwitch');
+        
+        // Class colors for legend
+        const classColors = {};
+        
+        // Browse button click handler
+        browseButton.addEventListener('click', () => {
+            videoFile.click();
+        });
+        
+        // File input change handler
+        videoFile.addEventListener('change', () => {
+            if (videoFile.files.length > 0) {
+                const fileName = videoFile.files[0].name;
+                dropArea.querySelector('h5').textContent = fileName;
+            }
+        });
+        
+        // Drag and drop handlers
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.classList.add('bg-light');
+        }
+        
+        function unhighlight() {
+            dropArea.classList.remove('bg-light');
+        }
+        
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            videoFile.files = files;
+            
+            if (files.length > 0) {
+                const fileName = files[0].name;
+                dropArea.querySelector('h5').textContent = fileName;
+            }
+        }
+        
+        // Current video path
+        let currentVideoPath = '';
+        
+        // Load available local videos when tab is shown
+        document.getElementById('local-tab').addEventListener('click', loadAvailableVideos);
+        
+        // Function to load available videos
+        function loadAvailableVideos() {
+            localVideosLoading.style.display = 'block';
+            localVideosContainer.style.display = 'none';
+            noLocalVideos.style.display = 'none';
+            
+            fetch('/available_videos')
+                .then(response => response.json())
+                .then(data => {
+                    localVideosLoading.style.display = 'none';
+                    
+                    if (data.videos && data.videos.length > 0) {
+                        localVideosContainer.innerHTML = '';
+                        
+                        data.videos.forEach(video => {
+                            const videoItem = document.createElement('button');
+                            videoItem.type = 'button';
+                            videoItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                            videoItem.innerHTML = `
+                                <div>
+                                    <i class="bi bi-film me-2"></i>
+                                    <span>${video.name}</span>
+                                </div>
+                                <span class="badge bg-primary rounded-pill">${video.size.toFixed(2)} MB</span>
+                            `;
+                            
+                            videoItem.addEventListener('click', () => {
+                                // Set all items to inactive
+                                document.querySelectorAll('#localVideosContainer .list-group-item').forEach(item => {
+                                    item.classList.remove('active');
+                                });
+                                
+                                // Set this item to active
+                                videoItem.classList.add('active');
+                                
+                                // Set the path in the input field
+                                manualPathInput.value = video.path;
+                            });
+                            
+                            localVideosContainer.appendChild(videoItem);
+                        });
+                        
+                        localVideosContainer.style.display = 'block';
+                    } else {
+                        noLocalVideos.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading videos:', error);
+                    localVideosLoading.style.display = 'none';
+                    noLocalVideos.style.display = 'block';
+                    noLocalVideos.textContent = 'Error loading videos. Please try again.';
+                });
+        }
+        
+        // Process local video button handler
+        processLocalButton.addEventListener('click', async () => {
+            const videoPath = manualPathInput.value.trim();
+            
+            if (!videoPath) {
+                alert('Please select a video file or enter a path.');
+                return;
+            }
+            
+            try {
+                // Show processing status
+                videoStatus.textContent = 'Processing...';
+                videoStatus.className = 'badge bg-info';
+                processingSpinner.style.display = 'block';
+                
+                // Create FormData
+                const formData = new FormData();
+                formData.append('video_path', videoPath);
+                
+                const response = await fetch('/process_local_video', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    videoStatus.textContent = 'Error';
+                    videoStatus.className = 'badge bg-danger';
+                    processingSpinner.style.display = 'none';
+                    return;
+                }
+                
+                // Start video stream
+                currentVideoPath = data.video_path;
+                videoStream.src = `/video_feed?video_path=${encodeURIComponent(data.video_path)}`;
+                
+                // Hide spinner when video starts loading
+                videoStream.onloadstart = () => {
+                    processingSpinner.style.display = 'none';
+                    videoStatus.textContent = 'Streaming';
+                    videoStatus.className = 'badge bg-success';
+                    saveVideoButton.disabled = false;
+                };
+                
+                // Start metrics polling
+                startMetricsPolling();
+                
+            } catch (error) {
+                console.error('Error:', error);
+                videoStatus.textContent = 'Error';
+                videoStatus.className = 'badge bg-danger';
+                processingSpinner.style.display = 'none';
+            }
+        });
+        
+        // Form submission handler for upload
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!videoFile.files.length) {
+                alert('Please select a video file first.');
+                return;
+            }
+            
+            // Show progress bar
+            uploadProgress.style.display = 'block';
+            progressBar.style.width = '0%';
+            
+            // Create FormData
+            const formData = new FormData();
+            formData.append('file', videoFile.files[0]);
+            
+            try {
+                // Upload video
+                videoStatus.textContent = 'Uploading...';
+                videoStatus.className = 'badge bg-warning';
+                
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = (event.loaded / event.total) * 100;
+                        progressBar.style.width = percentComplete + '%';
+                    }
+                });
+                
+                xhr.onload = async function() {
+                    if (xhr.status === 200) {
+                        const data = JSON.parse(xhr.responseText);
+                        
+                        // Show processing spinner
+                        processingSpinner.style.display = 'block';
+                        videoStatus.textContent = 'Processing...';
+                        videoStatus.className = 'badge bg-info';
+                        
+                        // Start video stream
+                        currentVideoPath = data.video_path;
+                        videoStream.src = `/video_feed?video_path=${encodeURIComponent(data.video_path)}`;
+                        
+                        // Hide spinner when video starts loading
+                        videoStream.onloadstart = () => {
+                            processingSpinner.style.display = 'none';
+                            videoStatus.textContent = 'Streaming';
+                            videoStatus.className = 'badge bg-success';
+                            saveVideoButton.disabled = false;
+                        };
+                        
+                        // Start metrics polling
+                        startMetricsPolling();
+                    } else {
+                        console.error('Upload failed');
+                        videoStatus.textContent = 'Error';
+                        videoStatus.className = 'badge bg-danger';
+                    }
+                };
+                
+                xhr.open('POST', '/upload', true);
+                xhr.send(formData);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                videoStatus.textContent = 'Error';
+                videoStatus.className = 'badge bg-danger';
+            }
+        });
+        
+        // Save video button handler
+        saveVideoButton.addEventListener('click', async () => {
+            if (!currentVideoPath) {
+                alert('No video is currently being processed.');
+                return;
+            }
+            
+            try {
+                saveVideoButton.disabled = true;
+                saveVideoButton.innerHTML = '<i class="bi bi-hourglass"></i> Saving...';
+                
+                const response = await fetch(`/save_video?video_path=${encodeURIComponent(currentVideoPath)}`);
+                const data = await response.json();
+                
+                if (data.output_path) {
+                    alert(`Video saved successfully to: ${data.output_path}`);
+                } else {
+                    alert('Error saving video.');
+                }
+                
+            } catch (error) {
+                console.error('Error saving video:', error);
+                alert('Error saving video.');
+            } finally {
+                saveVideoButton.disabled = false;
+                saveVideoButton.innerHTML = '<i class="bi bi-download"></i> Save Video';
+            }
+        });
+        
+        // Settings event listeners
+        trailLengthSlider.addEventListener('input', () => {
+            trailLengthValue.textContent = trailLengthSlider.value;
+            // In a real app, you would send this to the backend
+        });
+        
+        confidenceThresholdSlider.addEventListener('input', () => {
+            confidenceThresholdValue.textContent = confidenceThresholdSlider.value;
+            // In a real app, you would send this to the backend
+        });
+        
+        // Function to poll metrics from the server
+        function startMetricsPolling() {
+            // Clear previous interval if exists
+            if (window.metricsInterval) {
+                clearInterval(window.metricsInterval);
+            }
+            
+            // Poll every 500ms
+            const metricsInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/metrics');
+                    const metrics = await response.json();
+                    
+                    // Update metrics display
+                    updateMetricsDisplay(metrics);
+                    
+                } catch (error) {
+                    console.error('Error fetching metrics:', error);
+                }
+            }, 500);
+            
+            // Store interval ID to clear it later if needed
+            window.metricsInterval = metricsInterval;
+        }
+        
+        // Function to update metrics display
+        function updateMetricsDisplay(metrics) {
+            // Update basic metrics
+            fpsValue.textContent = metrics.fps.toFixed(1);
+            objectCountValue.textContent = metrics.object_count;
+            totalTrackedValue.textContent = metrics.total_objects_tracked;
+            confidenceValue.textContent = (metrics.avg_confidence * 100).toFixed(0) + '%';
+            processingTimeValue.textContent = (metrics.processing_time * 1000).toFixed(1) + ' ms';
+            
+            // Update frame progress
+            frameProgressValue.textContent = `${metrics.current_frame} / ${metrics.total_frames}`;
+            
+            // Update time breakdown
+            const totalTime = metrics.processing_time;
+            const detectionPercent = (metrics.detection_time / totalTime) * 100;
+            const trackingPercent = (metrics.tracking_time / totalTime) * 100;
+            const otherPercent = 100 - detectionPercent - trackingPercent;
+            
+            detectionTimeBar.style.width = detectionPercent + '%';
+            trackingTimeBar.style.width = trackingPercent + '%';
+            otherTimeBar.style.width = otherPercent + '%';
+            
+            detectionTimeText.textContent = `Detection: ${(metrics.detection_time * 1000).toFixed(1)}ms`;
+            trackingTimeText.textContent = `Tracking: ${(metrics.tracking_time * 1000).toFixed(1)}ms`;
+            otherTimeText.textContent = `Other: ${((totalTime - metrics.detection_time - metrics.tracking_time) * 1000).toFixed(1)}ms`;
+            
+            // Update class counts
+            updateClassCounts(metrics.class_counts);
+        }
+        
+        // Function to update class counts and legend
+        function updateClassCounts(classCounts) {
+            // Clear containers
+            classCountsContainer.innerHTML = '';
+            classLegend.innerHTML = '';
+            
+            // Generate random colors for new classes
+            for (const className in classCounts) {
+                if (!classColors[className]) {
+                    classColors[className] = getRandomColor();
+                }
+            }
+            
+            // Add class counts
+            for (const className in classCounts) {
+                const count = classCounts[className];
+                const color = classColors[className];
+                
+                // Add to class counts
+                const classCountItem = document.createElement('div');
+                classCountItem.className = 'd-flex justify-content-between align-items-center mb-2';
+                classCountItem.innerHTML = `
+                    <div>
+                        <span class="badge" style="background-color: ${color}">${className}</span>
+                    </div>
+                    <div>${count}</div>
+                `;
+                classCountsContainer.appendChild(classCountItem);
+                
+                // Add to legend
+                const legendItem = document.createElement('div');
+                legendItem.className = 'class-item';
+                legendItem.innerHTML = `
+                    <div class="class-color" style="background-color: ${color}"></div>
+                    <div>${className}</div>
+                `;
+                classLegend.appendChild(legendItem);
+            }
+        }
+        
+        // Function to generate random color
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+    </script>
+</body>
+</html>
