@@ -104,6 +104,8 @@
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 10;
+            width: 3rem;
+            height: 3rem;
         }
         .settings-panel {
             padding: 15px;
@@ -279,13 +281,32 @@
                                     <div id="processingTimeValue" class="metrics-value">0 ms</div>
                                 </div>
                             </div>
-                            
+
                             <!-- Frame Progress -->
                             <div class="col-6 col-lg-4">
                                 <div class="p-3 border rounded bg-light">
                                     <div class="metrics-label">Frame Progress</div>
                                     <div id="frameProgressValue" class="metrics-value">0 / 0</div>
                                 </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Object Time Metrics -->
+                        <div class="mt-4">
+                            <h6>Object Time Metrics</h6>
+                            <div id="objectTimeMetricsContainer" class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Class</th>
+                                            <th>Time (s)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="objectTimeMetricsBody">
+                                    <!-- Will be populated dynamically -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                         
@@ -719,63 +740,80 @@
             trackingTimeBar.style.width = trackingPercent + '%';
             otherTimeBar.style.width = otherPercent + '%';
             
+            // Update text labels
+            detectionTimeText.textContent = `Detection: ${(metrics.detection_time * 1000).toFixed(1)}ms`;
+            // Complete the truncated code in index.html
+            const totalTime = metrics.processing_time;
+            const detectionPercent = (metrics.detection_time / totalTime) * 100;
+            const trackingPercent = (metrics.tracking_time / totalTime) * 100;
+            const otherPercent = 100 - detectionPercent - trackingPercent;
+
+            // Update progress bars
+            detectionTimeBar.style.width = detectionPercent + '%';
+            trackingTimeBar.style.width = trackingPercent + '%';
+            otherTimeBar.style.width = otherPercent + '%';
+
+            // Update text labels
             detectionTimeText.textContent = `Detection: ${(metrics.detection_time * 1000).toFixed(1)}ms`;
             trackingTimeText.textContent = `Tracking: ${(metrics.tracking_time * 1000).toFixed(1)}ms`;
             otherTimeText.textContent = `Other: ${((totalTime - metrics.detection_time - metrics.tracking_time) * 1000).toFixed(1)}ms`;
-            
+
             // Update class counts
-            updateClassCounts(metrics.class_counts);
-        }
-        
-        // Function to update class counts and legend
-        function updateClassCounts(classCounts) {
-            // Clear containers
             classCountsContainer.innerHTML = '';
-            classLegend.innerHTML = '';
-            
-            // Generate random colors for new classes
-            for (const className in classCounts) {
-                if (!classColors[className]) {
-                    classColors[className] = getRandomColor();
-                }
-            }
-            
-            // Add class counts
-            for (const className in classCounts) {
-                const count = classCounts[className];
-                const color = classColors[className];
-                
-                // Add to class counts
+            Object.entries(metrics.class_counts).forEach(([className, count]) => {
                 const classCountItem = document.createElement('div');
-                classCountItem.className = 'd-flex justify-content-between align-items-center mb-2';
+                classCountItem.className = 'mb-2';
                 classCountItem.innerHTML = `
-                    <div>
-                        <span class="badge" style="background-color: ${color}">${className}</span>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>${className}</span>
+                        <span class="badge bg-primary rounded-pill">${count}</span>
                     </div>
-                    <div>${count}</div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar" role="progressbar" style="width: ${(count / metrics.object_count) * 100}%" 
+                            aria-valuenow="${count}" aria-valuemin="0" aria-valuemax="${metrics.object_count}"></div>
+                    </div>
                 `;
                 classCountsContainer.appendChild(classCountItem);
+            });
+
+            // Update object time metrics
+            const objectTimeMetricsBody = document.getElementById('objectTimeMetricsBody');
+            objectTimeMetricsBody.innerHTML = '';
+
+            // Sort objects by time in video (descending)
+            const sortedObjects = Object.entries(metrics.object_time_metrics)
+                .map(([id, data]) => ({ id, ...data }))
+                .sort((a, b) => b.frames - a.frames);
+
+            // Display top objects
+            sortedObjects.slice(0, 10).forEach(obj => {
+                const row = document.createElement('tr');
+                // Calculate time in seconds based on frames and FPS
+                const timeInSeconds = obj.frames / (metrics.video_fps || 30);
                 
-                // Add to legend
-                const legendItem = document.createElement('div');
-                legendItem.className = 'class-item';
-                legendItem.innerHTML = `
-                    <div class="class-color" style="background-color: ${color}"></div>
-                    <div>${className}</div>
+                row.innerHTML = `
+                    <td>${obj.id}</td>
+                    <td>${obj.class_name}</td>
+                    <td>${timeInSeconds.toFixed(1)}</td>
                 `;
-                classLegend.appendChild(legendItem);
+                objectTimeMetricsBody.appendChild(row);
+            });
+
+            // Update class legend
+            if (Object.keys(metrics.class_counts).length > 0 && classLegend.children.length === 0) {
+                classLegend.innerHTML = '';
+                Object.keys(metrics.class_counts).forEach((className, index) => {
+                    // Generate a color for this class (simple hashing)
+                    const hue = (index * 137.5) % 360;
+                    const color = `hsl(${hue}, 70%, 60%)`;
+                    
+                    const classItem = document.createElement('div');
+                    classItem.className = 'class-item';
+                    classItem.innerHTML = `
+                        <div class="class-color" style="background-color: ${color}"></div>
+                        <div>${className}</div>
+                    `;
+                    classLegend.appendChild(classItem);
+                });
             }
-        }
-        
-        // Function to generate random color
-        function getRandomColor() {
-            const letters = '0123456789ABCDEF';
-            let color = '#';
-            for (let i = 0; i < 6; i++) {
-                color += letters[Math.floor(Math.random() * 16)];
             }
-            return color;
-        }
-    </script>
-</body>
-</html>
