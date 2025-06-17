@@ -38,7 +38,8 @@ metrics = {
     "current_frame": 0,
     "distance_traveled": {},  # Track distance traveled by each object
     "speed_estimates": {},    # Estimated speed of each object
-    "total_objects_tracked": 0
+    "total_objects_tracked": 0,
+    "object_time_metrics": {}  # Track time each object spends in the video
 }
 
 # Maximum trail length
@@ -76,7 +77,8 @@ async def upload_video(file: UploadFile = File(...)):
         "current_frame": 0,
         "distance_traveled": {},
         "speed_estimates": {},
-        "total_objects_tracked": 0
+        "total_objects_tracked": 0,
+        "object_time_metrics": {}
     }
     
     # Save uploaded file to temp location
@@ -105,7 +107,8 @@ async def process_local_video(video_path: str = Form(...)):
         "current_frame": 0,
         "distance_traveled": {},
         "speed_estimates": {},
-        "total_objects_tracked": 0
+        "total_objects_tracked": 0,
+        "object_time_metrics": {}
     }
     
     # Check if file exists
@@ -171,6 +174,8 @@ def process_frame(frame, results, frame_count, save_mode=False):
     if frame_count == 0:
         # Get total frames for progress tracking
         metrics["total_frames"] = 0  # Will be updated if we're processing a video file
+        # Reset object time metrics when starting a new video
+        metrics["object_time_metrics"] = {}
     
     metrics["current_frame"] = frame_count
     
@@ -268,6 +273,18 @@ def process_frame(frame, results, frame_count, save_mode=False):
                 tracks[track_id]["trail"].append(det["centroid"])
                 tracks[track_id]["last_seen"] = frame_count
                 
+                # Update object time metrics - increment frame count for this object
+                if track_id not in metrics["object_time_metrics"]:
+                    metrics["object_time_metrics"][track_id] = {
+                        "frames": 1,
+                        "class_name": det["class_name"],
+                        "first_seen": frame_count,
+                        "last_seen": frame_count
+                    }
+                else:
+                    metrics["object_time_metrics"][track_id]["frames"] += 1
+                    metrics["object_time_metrics"][track_id]["last_seen"] = frame_count
+                
                 matched_tracks.add(track_id)
                 matched_detections.add(best_detection)
         
@@ -285,6 +302,14 @@ def process_frame(frame, results, frame_count, save_mode=False):
                     "confidence": det["confidence"],
                     "trail": deque([det["centroid"]], maxlen=MAX_TRAIL_LENGTH),
                     "color": get_color(track_id),
+                    "last_seen": frame_count
+                }
+                
+                # Initialize time metrics for new track
+                metrics["object_time_metrics"][track_id] = {
+                    "frames": 1,
+                    "class_name": det["class_name"],
+                    "first_seen": frame_count,
                     "last_seen": frame_count
                 }
     
@@ -335,6 +360,16 @@ def process_frame(frame, results, frame_count, save_mode=False):
                 speed = metrics["speed_estimates"][track_id]
                 cv2.putText(frame, f"Speed: {speed:.1f}px/f", 
                            (x1, y2 + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Display time metrics if available
+        if track_id in metrics["object_time_metrics"] and not save_mode:
+            time_data = metrics["object_time_metrics"][track_id]
+            # Calculate time in seconds based on frames and video FPS (default to 30 if not available)
+            fps = metrics.get("video_fps", 30)
+            time_in_seconds = time_data["frames"] / fps
+            # Display time on the frame
+            cv2.putText(frame, f"Time: {time_in_seconds:.1f}s", 
+                       (x1, y2 + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
     
     tracking_end = time.time()
     tracking_time = tracking_end - tracking_start
@@ -413,6 +448,10 @@ def video_feed(video_path: str):
         # Get total frames for progress tracking
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         metrics["total_frames"] = total_frames
+        
+        # Get video FPS for time calculations
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        metrics["video_fps"] = video_fps if video_fps > 0 else 30  # Default to 30 if can't get FPS
         
         while cap.isOpened():
             ret, frame = cap.read()
